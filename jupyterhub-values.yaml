@@ -1,0 +1,24 @@
+hub:
+  config:
+    JupyterHub:
+      authenticator_class: dummy
+    DummyAuthenticator:
+      password: ""
+
+proxy:
+  service:
+    type: NodePort
+
+singleuser:
+  storage:
+    type: none
+  memory:
+    limit: 1G
+    guarantee: 512M
+  cpu:
+    limit: 1
+    guarantee: 0.1
+
+scheduling:
+  userScheduler:
+    enabled: false

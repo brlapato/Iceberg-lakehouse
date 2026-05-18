@@ -1,0 +1,76 @@
+# OpenMetadata — metadata management and data discovery
+# Chart: open-metadata/openmetadata
+# Repo:  https://helm.open-metadata.org
+#
+# Most defaults already point to the correct service names from the
+# openmetadata-dependencies chart (mysql, opensearch, openmetadata-dependencies-api-server).
+# This file only overrides what differs from defaults.
+
+replicaCount: 1
+
+openmetadata:
+  config:
+    logLevel: INFO
+    clusterName: openmetadata
+
+    # OpenSearch (the chart defaults already set this correctly)
+    elasticsearch:
+      enabled: true
+      host: opensearch
+      searchType: opensearch
+      port: 9200
+      scheme: http
+
+    # MySQL — secrets must exist before deployment (created by `make openmetadata`)
+    database:
+      enabled: true
+      host: mysql
+      port: 3306
+      driverClass: com.mysql.cj.jdbc.Driver
+      dbScheme: mysql
+      databaseName: openmetadata_db
+      auth:
+        username: openmetadata_user
+        # Secret created by Makefile: kubectl create secret generic mysql-secrets ...
+        password:
+          secretRef: mysql-secrets
+          secretKey: openmetadata-mysql-password
+      dbParams: "allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC"
+
+    # Airflow REST API (LocalExecutor still exposes the API server)
+    pipelineServiceClientConfig:
+      enabled: true
+      type: "airflow"
+      metadataApiEndpoint: http://openmetadata:8585/api
+      airflow:
+        className: "org.openmetadata.service.clients.pipeline.airflow.AirflowRESTClient"
+        apiEndpoint: http://openmetadata-dependencies-api-server:8080
+        verifySsl: "no-ssl"
+        healthCheckInterval: 300
+        auth:
+          enabled: true
+          username: admin
+          # Secret created by Makefile: kubectl create secret generic airflow-secrets ...
+          password:
+            secretRef: airflow-secrets
+            secretKey: openmetadata-airflow-password
+
+service:
+  type: ClusterIP
+  port: 8585
+  adminPort: 8586
+
+ingress:
+  enabled: false
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 2
+    memory: 2Gi
+
+# Access OpenMetadata UI:
+#   kubectl port-forward -n lakehouse svc/openmetadata 8585:8585
+# Default credentials: admin / admin

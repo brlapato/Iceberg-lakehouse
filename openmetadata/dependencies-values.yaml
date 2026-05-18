@@ -1,0 +1,137 @@
+# OpenMetadata Dependencies
+# Chart: open-metadata/openmetadata-dependencies
+# Repo:  https://helm.open-metadata.org
+#
+# Chart bundles MySQL, OpenSearch, and Airflow 3 (Apache Airflow chart).
+# Uses KubernetesExecutor (default) — works on single-node minikube because
+# all pods share the same node so ReadWriteOnce PVCs can be mounted by multiple pods.
+
+global:
+  security:
+    allowInsecureImages: true
+
+# ---------------------------------------------------------------------------
+# MySQL — shared DB for OpenMetadata + Airflow
+# Databases and users are created by initdbScripts at first boot.
+# ---------------------------------------------------------------------------
+mysql:
+  enabled: true
+  fullnameOverride: "mysql"
+  architecture: standalone
+  auth:
+    rootPassword: "password"
+  primary:
+    extraFlags: "--sort_buffer_size=10M"
+    persistence:
+      size: 10Gi
+    service:
+      nodePort: 3306
+  initdbScripts:
+    init_openmetadata_db_scripts.sql: |
+      CREATE DATABASE IF NOT EXISTS openmetadata_db;
+      CREATE USER IF NOT EXISTS 'openmetadata_user'@'%' IDENTIFIED BY 'openmetadata_password';
+      GRANT ALL PRIVILEGES ON openmetadata_db.* TO 'openmetadata_user'@'%' WITH GRANT OPTION;
+      commit;
+    init_airflow_db_scripts.sql: |
+      CREATE DATABASE IF NOT EXISTS airflow_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+      CREATE USER IF NOT EXISTS 'airflow_user'@'%' IDENTIFIED BY 'airflow_pass';
+      GRANT ALL PRIVILEGES ON airflow_db.* TO 'airflow_user'@'%' WITH GRANT OPTION;
+      commit;
+
+# ---------------------------------------------------------------------------
+# OpenSearch — search and indexing backend
+# ---------------------------------------------------------------------------
+opensearch:
+  enabled: true
+  clusterName: opensearch
+  fullnameOverride: opensearch
+  nodeGroup: ""
+  imagePullPolicy: Always
+  opensearchJavaOpts: "-Xmx512m -Xms512m"
+  persistence:
+    size: 10Gi
+  protocol: http
+  config:
+    opensearch.yml: |
+      plugins.security.disabled: true
+      indices.query.bool.max_clause_count: 4096
+  singleNode: true
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256M"
+    limits:
+      cpu: "1000m"
+      memory: "1024M"
+
+# ---------------------------------------------------------------------------
+# Airflow 3 — ingestion pipeline scheduler
+# Using KubernetesExecutor (default). On single-node minikube all pods share
+# the same node, so RWO PVCs for dags/logs are readable by all pods.
+# ---------------------------------------------------------------------------
+airflow:
+  enabled: true
+  webserverSecretKey: "a5f8c3e2d1b9a7f6e4c3b2a1f9e8d7c6b5a4f3e2d1c9b8a7f6e5d4c3b2a1f0e9"
+  images:
+    airflow:
+      repository: docker.getcollate.io/openmetadata/ingestion
+      tag: 1.12.8
+      pullPolicy: "IfNotPresent"
+  executor: "KubernetesExecutor"
+  env:
+    - name: AIRFLOW__API__AUTH_BACKENDS
+      value: "airflow.api.auth.backend.session,airflow.api.auth.backend.basic_auth"
+    - name: AIRFLOW__OPENMETADATA_AIRFLOW_APIS__DAG_GENERATED_CONFIGS
+      value: "/opt/airflow/dags"
+    - name: AIRFLOW__OPENMETADATA_SECRETS_MANAGER__AWS_REGION
+      value: ""
+    - name: AIRFLOW__OPENMETADATA_SECRETS_MANAGER__AWS_ACCESS_KEY_ID
+      value: ""
+    - name: AIRFLOW__OPENMETADATA_SECRETS_MANAGER__AWS_ACCESS_KEY
+      value: ""
+    - name: _PIP_ADDITIONAL_REQUIREMENTS
+      value: "apache-airflow-providers-fab==2.4.4"
+  webserver:
+    defaultUser:
+      enabled: true
+      role: Admin
+      username: admin
+      email: admin@lakehouse.local
+      firstName: Admin
+      lastName: User
+      password: admin
+  postgresql:
+    enabled: false
+  workers:
+    replicas: 2
+  flower:
+    enabled: false
+  redis:
+    enabled: false
+  data:
+    metadataConnection:
+      user: airflow_user
+      pass: airflow_pass
+      protocol: mysql
+      host: mysql
+      port: 3306
+      db: airflow_db
+      sslmode: disable
+  dags:
+    persistence:
+      enabled: true
+      storageClassName: ""
+      size: 1Gi
+  logs:
+    persistence:
+      enabled: true
+      storageClassName: ""
+      size: 1Gi
+  apiServer:
+    extraVolumes:
+      - name: dags
+        persistentVolumeClaim:
+          claimName: '{{ include "airflow.fullname" . }}-dags'
+    extraVolumeMounts:
+      - name: dags
+        mountPath: /opt/airflow/dags

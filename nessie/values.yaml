@@ -1,0 +1,69 @@
+# Project Nessie — Git-like catalog + Iceberg REST catalog server
+# Chart: nessie/nessie  v0.107.x
+# Repo:  https://charts.projectnessie.org
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/projectnessie/nessie
+  pullPolicy: IfNotPresent
+  # Leave tag empty to use the chart's default (matches chart appVersion)
+  tag: ""
+
+# ROCKSDB gives durable metadata on a PVC without an external database.
+# Migrate to JDBC2 (Postgres) for HA production deployments.
+versionStoreType: ROCKSDB
+
+rocksdb:
+  storageClassName: standard   # default StorageClass in minikube
+  storageSize: 10Gi
+
+# ---------------------------------------------------------------------------
+# Built-in Iceberg REST catalog
+# Trino and other engines connect to:
+#   http://nessie.lakehouse.svc.cluster.local:19120/iceberg/
+# ---------------------------------------------------------------------------
+catalog:
+  enabled: true
+
+  iceberg:
+    # Must match one of the warehouse names defined below
+    defaultWarehouse: warehouse
+
+    warehouses:
+      - name: warehouse
+        location: "s3://warehouse/"
+
+  storage:
+    s3:
+      defaultOptions:
+        region: us-east-1
+        pathStyleAccess: true
+        # SeaweedFS standalone S3 gateway
+        endpoint: "http://seaweedfs-s3.lakehouse.svc.cluster.local:8333"
+        # Disable chunked encoding — SeaweedFS rejects chunked payload signatures
+        chunkedEncodingEnabled: false
+        authType: STATIC
+        # Reference the K8s secret created by nessie/s3-credentials.yaml
+        accessKeySecret:
+          name: nessie-s3-credentials
+          awsAccessKeyId: access-key
+          awsSecretAccessKey: secret-key
+
+authentication:
+  enabled: false   # enable + configure OIDC for production
+
+service:
+  type: ClusterIP
+  port: 19120
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: 1
+    memory: 1Gi
+
+ingress:
+  enabled: false

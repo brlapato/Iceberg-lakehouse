@@ -1,0 +1,104 @@
+# Trino — distributed SQL query engine
+# Chart: trino/trino  v1.42.x  (app: Trino 480)
+# Repo:  https://trinodb.github.io/charts
+#
+# Key differences in Trino 480 vs earlier versions:
+#   - Nessie catalog prefix is "iceberg.nessie-catalog.*" (not "iceberg.nessie.*")
+#   - S3 filesystem properties are catalog-scoped (stay in the catalog file)
+#   - DataSize properties require human-readable format (e.g. "128MB")
+
+image:
+  repository: trinodb/trino
+  tag: ""
+  pullPolicy: IfNotPresent
+
+server:
+  workers: 1
+  node:
+    environment: development
+    dataDir: /data/trino
+    pluginDir: /usr/lib/trino/plugin
+  log:
+    trino:
+      level: INFO
+  config:
+    path: /etc/trino
+    http:
+      port: 8080
+    query:
+      maxMemory: "4GB"
+
+coordinator:
+  jvm:
+    maxHeapSize: "3G"
+    gcMethod:
+      type: "UseG1GC"
+      g1:
+        heapRegionSize: "32M"
+  config:
+    query:
+      maxMemoryPerNode: "1GB"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 4Gi
+    limits:
+      cpu: 2
+      memory: 5Gi
+
+worker:
+  jvm:
+    maxHeapSize: "3G"
+    gcMethod:
+      type: "UseG1GC"
+      g1:
+        heapRegionSize: "32M"
+  config:
+    query:
+      maxMemoryPerNode: "1GB"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 4Gi
+    limits:
+      cpu: 2
+      memory: 5Gi
+
+# ---------------------------------------------------------------------------
+# Catalogs
+# ---------------------------------------------------------------------------
+# "lakehouse" catalog: Iceberg tables via Nessie + SeaweedFS S3.
+#
+# S3 filesystem properties are catalog-scoped in Trino 480 (live here,
+# not in additionalConfigProperties / config.properties).
+#
+# Credentials must match seaweedfs/s3-credentials.yaml and
+# nessie/s3-credentials.yaml.
+# ---------------------------------------------------------------------------
+catalogs:
+  tpch: |
+    connector.name=tpch
+    tpch.splits-per-node=4
+  lakehouse: |
+    connector.name=iceberg
+    iceberg.catalog.type=nessie
+    iceberg.nessie-catalog.uri=http://nessie.lakehouse.svc.cluster.local:19120/api/v2
+    iceberg.nessie-catalog.ref=main
+    iceberg.nessie-catalog.default-warehouse-dir=s3://warehouse/
+    iceberg.target-max-file-size=128MB
+    fs.native-s3.enabled=true
+    s3.endpoint=http://seaweedfs-s3.lakehouse.svc.cluster.local:8333
+    s3.region=us-east-1
+    s3.path-style-access=true
+    s3.aws-access-key=lakehouse-access-key
+    s3.aws-secret-key=lakehouse-secret-key
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+
+# Access Trino Web UI:
+#   kubectl port-forward -n lakehouse svc/trino 8080:8080

@@ -1,0 +1,74 @@
+# SeaweedFS — distributed storage with S3-compatible API
+# Chart: seaweedfs/seaweedfs  v4.25.x
+# Repo:  https://seaweedfs.github.io/seaweedfs/helm
+
+global:
+  seaweedfs:
+    image:
+      name: chrislusf/seaweedfs
+    imagePullPolicy: IfNotPresent
+    restartPolicy: Always
+    loggingLevel: 1
+    enableSecurity: false
+    monitoring:
+      enabled: false
+    # Single-copy; increase to "011" or "111" for production durability
+    enableReplication: false
+
+master:
+  enabled: true
+  replicas: 1
+  port: 9333
+  grpcPort: 19333
+  # Single-copy, 1 GB volume size limit
+  defaultReplication: "000"
+  volumeSizeLimitMB: 1000
+  config: |-
+    [master]
+  data:
+    type: "persistentVolumeClaim"
+    size: "1Gi"
+    storageClass: "standard"
+
+volume:
+  enabled: true
+  replicas: 1
+  port: 8080
+  grpcPort: 18080
+  compactionMBps: 40
+  fileSizeLimitMB: 256
+  minFreeSpacePercent: 7
+  dataDirs:
+    - name: data1
+      type: "persistentVolumeClaim"
+      size: "20Gi"
+      storageClass: "standard"
+      maxVolumes: 0
+
+filer:
+  enabled: true
+  replicas: 1
+  port: 8888
+  grpcPort: 18888
+  maxMB: 4
+  data:
+    type: "persistentVolumeClaim"
+    size: "5Gi"
+    storageClass: "standard"
+
+# ---------------------------------------------------------------------------
+# Standalone S3 gateway pod
+# Service: seaweedfs-s3.lakehouse.svc.cluster.local:8333
+# Credentials must match seaweedfs/s3-credentials.yaml
+# ---------------------------------------------------------------------------
+s3:
+  enabled: true
+  port: 8333
+  httpsPort: 0
+  enableAuth: true
+  # Secret must have key "seaweedfs_s3_config" with the JSON identity config
+  existingConfigSecret: seaweedfs-s3-credentials
+  # Automatically create the 'warehouse' bucket on first deploy
+  createBuckets:
+    - name: warehouse
+      anonymousRead: false
