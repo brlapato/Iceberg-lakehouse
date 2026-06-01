@@ -2,19 +2,19 @@ NAMESPACE := lakehouse
 HELM      := helm
 KUBECTL   := kubectl
 
-.PHONY: all repos namespaces seaweedfs nessie trino \
-        openmetadata-deps openmetadata init-storage \
+.PHONY: all repos namespaces seaweedfs polaris trino \
+        openmetadata-deps openmetadata init-storage register-tables \
         status teardown
 
 # Deploy everything in dependency order
-all: repos namespaces seaweedfs nessie trino openmetadata-deps openmetadata
+all: repos namespaces seaweedfs polaris trino openmetadata-deps openmetadata
 
 # ---------------------------------------------------------------------------
 # Helm repository setup
 # ---------------------------------------------------------------------------
 repos:
 	$(HELM) repo add seaweedfs      https://seaweedfs.github.io/seaweedfs/helm
-	$(HELM) repo add nessie         https://charts.projectnessie.org
+	$(HELM) repo add polaris        https://downloads.apache.org/polaris/helm-chart
 	$(HELM) repo add trino          https://trinodb.github.io/charts
 	$(HELM) repo add open-metadata  https://helm.open-metadata.org
 	$(HELM) repo update
@@ -36,17 +36,23 @@ seaweedfs: namespaces
 		--wait --timeout 5m
 
 # ---------------------------------------------------------------------------
-# Project Nessie — Iceberg catalog with Git-like versioning
+# Apache Polaris — Iceberg REST Catalog (v1.5.0)
+# Deploys Polaris then runs init-polaris.sh to bootstrap the warehouse
+# catalog, create the trino service principal, and write the
+# polaris-trino-credentials K8s secret that Trino reads at startup.
 # ---------------------------------------------------------------------------
-nessie: namespaces
-	$(KUBECTL) apply -f nessie/s3-credentials.yaml
-	$(HELM) upgrade --install nessie nessie/nessie \
+polaris: namespaces
+	$(HELM) upgrade --install polaris polaris/polaris \
 		--namespace $(NAMESPACE) \
-		--values nessie/values.yaml \
+		--version 1.5.0 \
+		--values polaris/values.yaml \
 		--wait --timeout 5m
+	NAMESPACE=$(NAMESPACE) bash scripts/patch-polaris-hosts.sh
+	NAMESPACE=$(NAMESPACE) bash scripts/init-polaris.sh
 
 # ---------------------------------------------------------------------------
 # Trino — distributed SQL query engine
+# Must run after 'polaris' so the polaris-trino-credentials secret exists.
 # ---------------------------------------------------------------------------
 trino: namespaces
 	$(HELM) upgrade --install trino trino/trino \
@@ -89,6 +95,13 @@ init-storage:
 	NAMESPACE=$(NAMESPACE) bash scripts/init-storage.sh
 
 # ---------------------------------------------------------------------------
+# Post-deploy: register pre-existing Iceberg tables from SeaweedFS into Polaris.
+# Run this after switching from Nessie if you want to preserve existing data.
+# ---------------------------------------------------------------------------
+register-tables:
+	NAMESPACE=$(NAMESPACE) bash scripts/register-existing-tables.sh
+
+# ---------------------------------------------------------------------------
 # Convenience targets
 # ---------------------------------------------------------------------------
 status:
@@ -100,8 +113,8 @@ status:
 pf-trino:
 	$(KUBECTL) port-forward --namespace $(NAMESPACE) svc/trino 8080:8080
 
-pf-nessie:
-	$(KUBECTL) port-forward --namespace $(NAMESPACE) svc/nessie 19120:19120
+pf-polaris:
+	$(KUBECTL) port-forward --namespace $(NAMESPACE) svc/polaris 8181:8181
 
 pf-openmetadata:
 	$(KUBECTL) port-forward --namespace $(NAMESPACE) svc/openmetadata 8585:8585
@@ -116,12 +129,12 @@ teardown:
 	$(HELM) uninstall openmetadata               --namespace $(NAMESPACE) --ignore-not-found
 	$(HELM) uninstall openmetadata-dependencies  --namespace $(NAMESPACE) --ignore-not-found
 	$(HELM) uninstall trino                      --namespace $(NAMESPACE) --ignore-not-found
-	$(HELM) uninstall nessie                     --namespace $(NAMESPACE) --ignore-not-found
+	$(HELM) uninstall polaris                    --namespace $(NAMESPACE) --ignore-not-found
 	$(HELM) uninstall seaweedfs                  --namespace $(NAMESPACE) --ignore-not-found
 	$(KUBECTL) delete secret mysql-secrets airflow-secrets \
 		--namespace $(NAMESPACE) --ignore-not-found
 	$(KUBECTL) delete secret seaweedfs-s3-credentials \
 		--namespace $(NAMESPACE) --ignore-not-found
-	$(KUBECTL) delete secret nessie-s3-credentials \
+	$(KUBECTL) delete secret polaris-trino-credentials \
 		--namespace $(NAMESPACE) --ignore-not-found
 	$(KUBECTL) delete -f namespaces.yaml --ignore-not-found

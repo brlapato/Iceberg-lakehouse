@@ -1,0 +1,103 @@
+# Apache Polaris — Iceberg REST Catalog (Apache Incubating)
+# Chart: polaris/polaris  v1.5.0
+# Repo:  https://downloads.apache.org/polaris/helm-chart
+#
+# Persistence: in-memory (H2 and EclipseLink were removed in Polaris 1.5.0).
+#   Catalog state (warehouse catalog, trino principal, roles) is lost on pod
+#   restart.  Re-run 'make polaris' to re-bootstrap, then 'make trino' to
+#   restart Trino with refreshed credentials.
+#
+#   To add durable persistence, deploy bitnami/postgresql and switch:
+#     persistence.type: relational-jdbc
+#     persistence.relationalJdbc.secret.name: <postgresql-credentials-secret>
+#
+# Auth: internal symmetric-key token broker (single-node dev; not for production).
+#
+# Bootstrap: POLARIS realm, root principal (root / polaris-dev-secret).
+#   scripts/init-polaris.sh uses these to create the warehouse catalog and
+#   the trino service principal, then writes the polaris-trino-credentials
+#   K8s secret that Trino reads as POLARIS_OAUTH_CREDENTIAL at startup.
+#
+# Trino catalog API:
+#   http://polaris.lakehouse.svc.cluster.local:8181/api/catalog
+# Polaris management API:
+#   http://polaris.lakehouse.svc.cluster.local:8181/api/management
+
+replicaCount: 1
+
+image:
+  repository: apache/polaris
+  tag: "1.5.0"
+  pullPolicy: IfNotPresent
+
+# ---------------------------------------------------------------------------
+# Persistence — in-memory (volatile; catalog is rebuilt by init-polaris.sh)
+# ---------------------------------------------------------------------------
+persistence:
+  type: in-memory
+
+# ---------------------------------------------------------------------------
+# Authentication — internal token service, symmetric-key broker (dev only)
+# ---------------------------------------------------------------------------
+authentication:
+  type: internal
+  tokenBroker:
+    type: rsa-key-pair   # auto-generates an ephemeral key pair on first boot
+
+# ---------------------------------------------------------------------------
+# Feature flags
+# Include SUPPORTED_CATALOG_STORAGE_TYPES explicitly to avoid Helm dropping
+# the chart default when merging the features map.
+# ---------------------------------------------------------------------------
+features:
+  SUPPORTED_CATALOG_STORAGE_TYPES:
+    - S3
+    - GCS
+    - AZURE
+  ALLOW_S3_CUSTOM_ENDPOINTS: true
+  # Skip AWS STS subscoping indirection — required for non-AWS S3-compatible
+  # storage (SeaweedFS). Without this, Polaris calls STS to generate subscoped
+  # credentials when committing Iceberg transactions, which fails with no real
+  # AWS environment. Polaris returns storage credentials directly instead.
+  SKIP_CREDENTIAL_SUBSCOPING_INDIRECTION: true
+  # Allow Trino (and other clients) to DROP TABLE with purge — required for
+  # clean DDL teardown when iceberg.catalog.type=rest is used.
+  DROP_WITH_PURGE_ENABLED: true
+
+# ---------------------------------------------------------------------------
+# Bootstrap credentials for the root principal.
+# Format: REALM,CLIENT_ID,CLIENT_SECRET
+# init-polaris.sh uses root/polaris-dev-secret to obtain the admin token.
+# ---------------------------------------------------------------------------
+extraEnv:
+  - name: POLARIS_BOOTSTRAP_CREDENTIALS
+    value: "POLARIS,root,polaris-dev-secret"
+  # SeaweedFS S3 credentials — Polaris needs these to satisfy the AWS SDK
+  # when SKIP_CREDENTIAL_SUBSCOPING_INDIRECTION is enabled (it returns them
+  # directly instead of calling STS). Trino ignores vended credentials
+  # (vended-credentials-enabled=false) and uses its own static keys.
+  - name: AWS_REGION
+    value: "us-east-1"
+  - name: AWS_ACCESS_KEY_ID
+    value: "lakehouse-access-key"
+  - name: AWS_SECRET_ACCESS_KEY
+    value: "lakehouse-secret-key"
+  # Override S3 endpoint so Polaris writes Iceberg metadata to SeaweedFS.
+  # AWS SDK for Java v2 uses virtual-hosted style (bucket.endpoint/key) when
+  # this is set; the hostAliases patch and SeaweedFS domainName make this work.
+  - name: AWS_ENDPOINT_URL_S3
+    value: "http://seaweedfs-s3.lakehouse.svc.cluster.local:8333"
+
+service:
+  type: ClusterIP
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: 1
+    memory: 1Gi
+
+ingress:
+  enabled: false
