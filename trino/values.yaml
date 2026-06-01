@@ -2,10 +2,13 @@
 # Chart: trino/trino  v1.42.x  (app: Trino 480)
 # Repo:  https://trinodb.github.io/charts
 #
-# Key differences in Trino 480 vs earlier versions:
-#   - Nessie catalog prefix is "iceberg.nessie-catalog.*" (not "iceberg.nessie.*")
-#   - S3 filesystem properties are catalog-scoped (stay in the catalog file)
+# Key notes for Trino 480:
+#   - Iceberg REST catalog (Polaris): iceberg.catalog.type=rest
+#   - S3 filesystem properties are catalog-scoped (stay in the catalog block)
 #   - DataSize properties require human-readable format (e.g. "128MB")
+#   - OAuth2 credential for Polaris is injected via the polaris-trino-credentials
+#     K8s secret (created by scripts/init-polaris.sh) as POLARIS_OAUTH_CREDENTIAL.
+#     Trino substitutes ${ENV:POLARIS_OAUTH_CREDENTIAL} at startup.
 
 image:
   repository: trinodb/trino
@@ -64,16 +67,29 @@ worker:
       cpu: 2
       memory: 5Gi
 
+# Polaris OAuth2 credential (clientId:clientSecret) injected from K8s secret.
+# Written by scripts/init-polaris.sh; applied to all Trino pods (coordinator + workers).
+# optional: true — pod starts without secret; catalog auth will fail until secret exists.
+env:
+  - name: POLARIS_OAUTH_CREDENTIAL
+    valueFrom:
+      secretKeyRef:
+        name: polaris-trino-credentials
+        key: oauth-credential
+        optional: true
+
 # ---------------------------------------------------------------------------
 # Catalogs
 # ---------------------------------------------------------------------------
-# "lakehouse" catalog: Iceberg tables via Nessie + SeaweedFS S3.
+# "lakehouse" catalog: Iceberg tables via Apache Polaris REST catalog + SeaweedFS S3.
 #
-# S3 filesystem properties are catalog-scoped in Trino 480 (live here,
-# not in additionalConfigProperties / config.properties).
+# Polaris endpoint:  http://polaris.lakehouse.svc.cluster.local:8181/api/catalog
+# Warehouse name:    warehouse  (matches the catalog created by init-polaris.sh)
+# OAuth2 credential: ${ENV:POLARIS_OAUTH_CREDENTIAL}  →  clientId:clientSecret
+#                    from polaris-trino-credentials K8s secret
 #
-# Credentials must match seaweedfs/s3-credentials.yaml and
-# nessie/s3-credentials.yaml.
+# Credential vending is disabled — Trino manages its own S3 credentials
+# directly (SeaweedFS uses static keys, not IAM roles).
 # ---------------------------------------------------------------------------
 catalogs:
   tpch: |
@@ -81,11 +97,14 @@ catalogs:
     tpch.splits-per-node=4
   lakehouse: |
     connector.name=iceberg
-    iceberg.catalog.type=nessie
-    iceberg.nessie-catalog.uri=http://nessie.lakehouse.svc.cluster.local:19120/api/v2
-    iceberg.nessie-catalog.ref=main
-    iceberg.nessie-catalog.default-warehouse-dir=s3://warehouse/
+    iceberg.catalog.type=rest
+    iceberg.rest-catalog.uri=http://polaris.lakehouse.svc.cluster.local:8181/api/catalog
+    iceberg.rest-catalog.warehouse=warehouse
+    iceberg.rest-catalog.security=OAUTH2
+    iceberg.rest-catalog.oauth2.credential=${ENV:POLARIS_OAUTH_CREDENTIAL}
+    iceberg.rest-catalog.oauth2.scope=PRINCIPAL_ROLE:ALL
     iceberg.target-max-file-size=128MB
+    iceberg.unique-table-location=true
     fs.native-s3.enabled=true
     s3.endpoint=http://seaweedfs-s3.lakehouse.svc.cluster.local:8333
     s3.region=us-east-1

@@ -66,6 +66,10 @@ s3:
   port: 8333
   httpsPort: 0
   enableAuth: true
+  # Enable virtual-hosted style so Polaris can write Iceberg metadata using
+  # bucket.host/key URLs. The AWS SDK sends Host: warehouse.<domainName>
+  # and SeaweedFS extracts the bucket name from the subdomain.
+  domainName: "seaweedfs-s3.lakehouse.svc.cluster.local"
   # Secret must have key "seaweedfs_s3_config" with the JSON identity config
   existingConfigSecret: seaweedfs-s3-credentials
   # Automatically create the 'warehouse' bucket on first deploy
