@@ -58,8 +58,10 @@ filer:
 
 # ---------------------------------------------------------------------------
 # Standalone S3 gateway pod
-# Service: seaweedfs-s3.lakehouse.svc.cluster.local:8333
-# Credentials must match seaweedfs/s3-credentials.yaml
+# Service: seaweedfs-s3.<NAMESPACE>.svc.cluster.local:8333
+# Credentials come from the seaweedfs-s3-credentials secret (created by
+# `make credentials`). domainName and createBuckets[0].name are set by
+# `make seaweedfs` via --set to match the active namespace and S3_BUCKET.
 # ---------------------------------------------------------------------------
 s3:
   enabled: true
@@ -67,12 +69,14 @@ s3:
   httpsPort: 0
   enableAuth: true
   # Enable virtual-hosted style so Polaris can write Iceberg metadata using
-  # bucket.host/key URLs. The AWS SDK sends Host: warehouse.<domainName>
+  # bucket.host/key URLs. The AWS SDK sends Host: <bucket>.<domainName>
   # and SeaweedFS extracts the bucket name from the subdomain.
+  # Overridden by `make seaweedfs` via --set s3.domainName=<computed from namespace>.
   domainName: "seaweedfs-s3.lakehouse.svc.cluster.local"
   # Secret must have key "seaweedfs_s3_config" with the JSON identity config
   existingConfigSecret: seaweedfs-s3-credentials
-  # Automatically create the 'warehouse' bucket on first deploy
+  # Automatically create the S3_BUCKET on first deploy.
+  # Overridden by `make seaweedfs` via --set 's3.createBuckets[0].name=<S3_BUCKET>'.
   createBuckets:
     - name: warehouse
       anonymousRead: false

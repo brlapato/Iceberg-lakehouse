@@ -9,14 +9,15 @@
 set -euo pipefail
 
 NAMESPACE="${NAMESPACE:-lakehouse}"
+S3_SVC="${S3_SVC_NAME:-seaweedfs-s3}"
 
 log() { echo "[patch-polaris] $*"; }
 
-S3_IP=$(kubectl get svc seaweedfs-s3 --namespace "$NAMESPACE" \
+S3_IP=$(kubectl get svc "$S3_SVC" --namespace "$NAMESPACE" \
     -o jsonpath='{.spec.clusterIP}')
 
 if [[ -z "$S3_IP" ]]; then
-    log "ERROR: could not determine seaweedfs-s3 ClusterIP in namespace $NAMESPACE"
+    log "ERROR: could not determine $S3_SVC ClusterIP in namespace $NAMESPACE"
     exit 1
 fi
 
@@ -32,7 +33,7 @@ kubectl patch deployment polaris --namespace "$NAMESPACE" --type=json \
       {
         \"ip\": \"$S3_IP\",
         \"hostnames\": [
-          \"warehouse.seaweedfs-s3.${NAMESPACE}.svc.cluster.local\"
+          \"warehouse.${S3_SVC}.${NAMESPACE}.svc.cluster.local\"
         ]
       }
     ]
@@ -42,4 +43,4 @@ kubectl patch deployment polaris --namespace "$NAMESPACE" --type=json \
 log "Waiting for Polaris rollout after hostAliases patch..."
 kubectl rollout status deployment/polaris --namespace "$NAMESPACE" --timeout=120s
 
-log "Done. warehouse.seaweedfs-s3.${NAMESPACE}.svc.cluster.local -> $S3_IP"
+log "Done. warehouse.${S3_SVC}.${NAMESPACE}.svc.cluster.local -> $S3_IP"

@@ -67,26 +67,53 @@ worker:
       cpu: 2
       memory: 5Gi
 
-# Polaris OAuth2 credential (clientId:clientSecret) injected from K8s secret.
-# Written by scripts/init-polaris.sh; applied to all Trino pods (coordinator + workers).
-# optional: true — pod starts without secret; catalog auth will fail until secret exists.
+# Environment variables injected into all Trino pods (coordinator + workers).
+# Secrets and ConfigMap are created by `make credentials` and `make config`.
 env:
+  # Polaris OAuth2 credential written by init-polaris.sh. optional: true so
+  # Trino starts even before polaris has been bootstrapped; catalog auth fails
+  # until the secret exists.
   - name: POLARIS_OAUTH_CREDENTIAL
     valueFrom:
       secretKeyRef:
         name: polaris-trino-credentials
         key: oauth-credential
         optional: true
+  - name: S3_ACCESS_KEY
+    valueFrom:
+      secretKeyRef:
+        name: s3-credentials
+        key: access-key
+  - name: S3_SECRET_KEY
+    valueFrom:
+      secretKeyRef:
+        name: s3-credentials
+        key: secret-key
+  - name: S3_ENDPOINT
+    valueFrom:
+      configMapKeyRef:
+        name: lakehouse-config
+        key: s3-endpoint
+  - name: POLARIS_CATALOG_URI
+    valueFrom:
+      configMapKeyRef:
+        name: lakehouse-config
+        key: polaris-catalog-uri
+  - name: S3_BUCKET
+    valueFrom:
+      configMapKeyRef:
+        name: lakehouse-config
+        key: s3-bucket
 
 # ---------------------------------------------------------------------------
 # Catalogs
 # ---------------------------------------------------------------------------
 # "lakehouse" catalog: Iceberg tables via Apache Polaris REST catalog + SeaweedFS S3.
 #
-# Polaris endpoint:  http://polaris.lakehouse.svc.cluster.local:8181/api/catalog
-# Warehouse name:    warehouse  (matches the catalog created by init-polaris.sh)
-# OAuth2 credential: ${ENV:POLARIS_OAUTH_CREDENTIAL}  →  clientId:clientSecret
-#                    from polaris-trino-credentials K8s secret
+# All env-specific values (endpoints, credentials, bucket) are injected as
+# Trino pod env vars and referenced below via ${ENV:*} substitution.
+# The pod env vars are populated from K8s secrets and the lakehouse-config
+# ConfigMap, both created by `make credentials` and `make config`.
 #
 # Credential vending is disabled — Trino manages its own S3 credentials
 # directly (SeaweedFS uses static keys, not IAM roles).
@@ -98,19 +125,19 @@ catalogs:
   lakehouse: |
     connector.name=iceberg
     iceberg.catalog.type=rest
-    iceberg.rest-catalog.uri=http://polaris.lakehouse.svc.cluster.local:8181/api/catalog
-    iceberg.rest-catalog.warehouse=warehouse
+    iceberg.rest-catalog.uri=${ENV:POLARIS_CATALOG_URI}
+    iceberg.rest-catalog.warehouse=${ENV:S3_BUCKET}
     iceberg.rest-catalog.security=OAUTH2
     iceberg.rest-catalog.oauth2.credential=${ENV:POLARIS_OAUTH_CREDENTIAL}
     iceberg.rest-catalog.oauth2.scope=PRINCIPAL_ROLE:ALL
     iceberg.target-max-file-size=128MB
     iceberg.unique-table-location=true
     fs.native-s3.enabled=true
-    s3.endpoint=http://seaweedfs-s3.lakehouse.svc.cluster.local:8333
+    s3.endpoint=${ENV:S3_ENDPOINT}
     s3.region=us-east-1
     s3.path-style-access=true
-    s3.aws-access-key=lakehouse-access-key
-    s3.aws-secret-key=lakehouse-secret-key
+    s3.aws-access-key=${ENV:S3_ACCESS_KEY}
+    s3.aws-secret-key=${ENV:S3_SECRET_KEY}
 
 service:
   type: ClusterIP

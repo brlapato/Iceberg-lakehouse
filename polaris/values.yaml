@@ -70,8 +70,13 @@ features:
 # init-polaris.sh uses root/polaris-dev-secret to obtain the admin token.
 # ---------------------------------------------------------------------------
 extraEnv:
+  # Bootstrap credentials come from the polaris-bootstrap-credentials secret
+  # created by `make credentials`. Format: REALM,CLIENT_ID,CLIENT_SECRET.
   - name: POLARIS_BOOTSTRAP_CREDENTIALS
-    value: "POLARIS,root,polaris-dev-secret"
+    valueFrom:
+      secretKeyRef:
+        name: polaris-bootstrap-credentials
+        key: credentials
   # SeaweedFS S3 credentials — Polaris needs these to satisfy the AWS SDK
   # when SKIP_CREDENTIAL_SUBSCOPING_INDIRECTION is enabled (it returns them
   # directly instead of calling STS). Trino ignores vended credentials
@@ -79,14 +84,23 @@ extraEnv:
   - name: AWS_REGION
     value: "us-east-1"
   - name: AWS_ACCESS_KEY_ID
-    value: "lakehouse-access-key"
+    valueFrom:
+      secretKeyRef:
+        name: s3-credentials
+        key: access-key
   - name: AWS_SECRET_ACCESS_KEY
-    value: "lakehouse-secret-key"
-  # Override S3 endpoint so Polaris writes Iceberg metadata to SeaweedFS.
+    valueFrom:
+      secretKeyRef:
+        name: s3-credentials
+        key: secret-key
+  # S3 endpoint from the lakehouse-config ConfigMap created by `make config`.
   # AWS SDK for Java v2 uses virtual-hosted style (bucket.endpoint/key) when
   # this is set; the hostAliases patch and SeaweedFS domainName make this work.
   - name: AWS_ENDPOINT_URL_S3
-    value: "http://seaweedfs-s3.lakehouse.svc.cluster.local:8333"
+    valueFrom:
+      configMapKeyRef:
+        name: lakehouse-config
+        key: s3-endpoint
 
 service:
   type: ClusterIP
