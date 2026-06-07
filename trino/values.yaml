@@ -9,6 +9,14 @@
 #   - OAuth2 credential for Polaris is injected via the polaris-trino-credentials
 #     K8s secret (created by scripts/init-polaris.sh) as POLARIS_OAUTH_CREDENTIAL.
 #     Trino substitutes ${ENV:POLARIS_OAUTH_CREDENTIAL} at startup.
+#
+# RBAC / Auth:
+#   - TLS (HTTPS on 8443): self-signed cert from 'make tls' → trino-tls secret
+#   - OAuth2/OIDC: Keycloak (configured in config/lakehouse-config.yaml)
+#     Run 'make keycloak-config' after editing config/lakehouse-config.yaml to
+#     propagate the issuer URL into this file.
+#   - Authorization: Apache Ranger plugin (ranger plugin dir ships in trinodb/trino:480)
+#     Ranger Admin must be running at http://ranger.lakehouse.svc.cluster.local:6080
 
 image:
   repository: trinodb/trino
@@ -28,55 +36,247 @@ server:
     path: /etc/trino
     http:
       port: 8080
+    https:
+      enabled: true
+      port: 8443
+      keystore:
+        path: /etc/trino/tls/keystore.pem
     query:
-      maxMemory: "4GB"
+      maxMemory: "1GB"
+  coordinatorExtraConfig: |
+    web-ui.authentication.type=oauth2
 
 coordinator:
   jvm:
-    maxHeapSize: "3G"
+    maxHeapSize: "1500M"
     gcMethod:
       type: "UseG1GC"
       g1:
-        heapRegionSize: "32M"
+        heapRegionSize: "16M"
   config:
     query:
-      maxMemoryPerNode: "1GB"
+      maxMemoryPerNode: "512MB"
   resources:
     requests:
       cpu: 500m
-      memory: 4Gi
+      memory: 2Gi
     limits:
       cpu: 2
-      memory: 5Gi
+      memory: 2Gi
+  additionalConfigFiles:
+    ranger-security.xml: |
+      <?xml version="1.0" encoding="UTF-8"?>
+      <configuration>
+        <property>
+          <name>ranger.plugin.trino.policy.rest.url</name>
+          <value>http://ranger.lakehouse.svc.cluster.local:6080</value>
+        </property>
+        <property>
+          <name>ranger.plugin.trino.service.name</name>
+          <value>trino_lakehouse</value>
+        </property>
+        <property>
+          <name>ranger.plugin.trino.policy.pollIntervalMs</name>
+          <value>30000</value>
+        </property>
+        <property>
+          <name>ranger.plugin.trino.policy.cache.dir</name>
+          <value>/data/trino/ranger/policycache</value>
+        </property>
+      </configuration>
+    ranger-audit.xml: |
+      <?xml version="1.0" encoding="UTF-8"?>
+      <configuration>
+        <property>
+          <name>xasecure.audit.is.enabled</name>
+          <value>true</value>
+        </property>
+        <property>
+          <name>xasecure.audit.destination.solr</name>
+          <value>false</value>
+        </property>
+        <property>
+          <name>xasecure.audit.destination.log4j</name>
+          <value>true</value>
+        </property>
+        <property>
+          <name>xasecure.audit.destination.log4j.logger</name>
+          <value>xaaudit</value>
+        </property>
+      </configuration>
 
 worker:
   jvm:
-    maxHeapSize: "3G"
+    maxHeapSize: "1500M"
     gcMethod:
       type: "UseG1GC"
       g1:
-        heapRegionSize: "32M"
+        heapRegionSize: "16M"
   config:
     query:
-      maxMemoryPerNode: "1GB"
+      maxMemoryPerNode: "512MB"
   resources:
     requests:
       cpu: 500m
-      memory: 4Gi
+      memory: 2Gi
     limits:
       cpu: 2
-      memory: 5Gi
+      memory: 2Gi
+  additionalConfigFiles:
+    ranger-security.xml: |
+      <?xml version="1.0" encoding="UTF-8"?>
+      <configuration>
+        <property>
+          <name>ranger.plugin.trino.policy.rest.url</name>
+          <value>http://ranger.lakehouse.svc.cluster.local:6080</value>
+        </property>
+        <property>
+          <name>ranger.plugin.trino.service.name</name>
+          <value>trino_lakehouse</value>
+        </property>
+        <property>
+          <name>ranger.plugin.trino.policy.pollIntervalMs</name>
+          <value>30000</value>
+        </property>
+        <property>
+          <name>ranger.plugin.trino.policy.cache.dir</name>
+          <value>/data/trino/ranger/policycache</value>
+        </property>
+      </configuration>
+    ranger-audit.xml: |
+      <?xml version="1.0" encoding="UTF-8"?>
+      <configuration>
+        <property>
+          <name>xasecure.audit.is.enabled</name>
+          <value>true</value>
+        </property>
+        <property>
+          <name>xasecure.audit.destination.solr</name>
+          <value>false</value>
+        </property>
+        <property>
+          <name>xasecure.audit.destination.log4j</name>
+          <value>true</value>
+        </property>
+        <property>
+          <name>xasecure.audit.destination.log4j.logger</name>
+          <value>xaaudit</value>
+        </property>
+      </configuration>
 
-# Polaris OAuth2 credential (clientId:clientSecret) injected from K8s secret.
-# Written by scripts/init-polaris.sh; applied to all Trino pods (coordinator + workers).
-# optional: true — pod starts without secret; catalog auth will fail until secret exists.
+# ---------------------------------------------------------------------------
+# Access control: Apache Ranger plugin
+# The 'ranger' plugin directory ships in the standard trinodb/trino:480 image.
+# XML config files are injected via coordinator/worker.additionalConfigFiles above.
+# ---------------------------------------------------------------------------
+accessControl:
+  type: properties
+  properties: |
+    access-control.name=ranger
+    ranger.service.name=${ENV:RANGER_SERVICE_NAME}
+    ranger.plugin.config.resource=/etc/trino/ranger-security.xml,/etc/trino/ranger-audit.xml
+
+# ---------------------------------------------------------------------------
+# Additional config.properties entries
+# These are appended to the Trino coordinator and worker config.properties.
+#
+# OAuth2 settings: Trino resolves ${ENV:VAR} at startup from env vars injected
+#   via the 'env' section below (configMapKeyRef from lakehouse-config).
+#   Run 'make keycloak-config' after editing config/lakehouse-config.yaml.
+# ---------------------------------------------------------------------------
+additionalConfigProperties:
+  - "http-server.authentication.type=oauth2"
+  - "http-server.authentication.oauth2.issuer=${ENV:KEYCLOAK_ISSUER_URL}"
+  - "http-server.authentication.oauth2.client-id=${ENV:KEYCLOAK_TRINO_CLIENT_ID}"
+  - "http-server.authentication.oauth2.client-secret=${ENV:KEYCLOAK_TRINO_CLIENT_SECRET}"
+  - "http-server.authentication.oauth2.principal-field=preferred_username"
+  - "http-server.authentication.oauth2.scopes=openid profile email"
+  - "internal-communication.shared-secret=${ENV:TRINO_INTERNAL_SHARED_SECRET}"
+
+# ---------------------------------------------------------------------------
+# Environment variables injected into all Trino pods.
+# Secrets come from K8s secrets; non-secret config from lakehouse-config ConfigMap.
+# Trino resolves ${ENV:VAR_NAME} in .properties files at startup from these vars.
+# ---------------------------------------------------------------------------
 env:
+  # Secrets
   - name: POLARIS_OAUTH_CREDENTIAL
     valueFrom:
       secretKeyRef:
         name: polaris-trino-credentials
         key: oauth-credential
         optional: true
+  - name: KEYCLOAK_TRINO_CLIENT_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: keycloak-trino
+        key: client-secret
+        optional: true
+  - name: TRINO_INTERNAL_SHARED_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: trino-internal-secret
+        key: shared-secret
+        optional: true
+  # Non-secret config from lakehouse-config ConfigMap
+  - name: KEYCLOAK_ISSUER_URL
+    valueFrom:
+      configMapKeyRef:
+        name: lakehouse-config
+        key: KEYCLOAK_ISSUER_URL
+        optional: true
+  - name: KEYCLOAK_TRINO_CLIENT_ID
+    valueFrom:
+      configMapKeyRef:
+        name: lakehouse-config
+        key: KEYCLOAK_TRINO_CLIENT_ID
+        optional: true
+  - name: RANGER_SERVICE_NAME
+    valueFrom:
+      configMapKeyRef:
+        name: lakehouse-config
+        key: RANGER_SERVICE_NAME
+        optional: true
+  - name: POLARIS_CATALOG_URL
+    valueFrom:
+      configMapKeyRef:
+        name: lakehouse-config
+        key: POLARIS_CATALOG_URL
+        optional: true
+  - name: CATALOG_NAME
+    valueFrom:
+      configMapKeyRef:
+        name: lakehouse-config
+        key: CATALOG_NAME
+        optional: true
+  - name: S3_ENDPOINT
+    valueFrom:
+      configMapKeyRef:
+        name: lakehouse-config
+        key: S3_ENDPOINT
+        optional: true
+  - name: S3_REGION
+    valueFrom:
+      configMapKeyRef:
+        name: lakehouse-config
+        key: S3_REGION
+        optional: true
+
+# ---------------------------------------------------------------------------
+# TLS keystore (PEM: cert chain + unencrypted private key) from trino-tls secret
+# Created by: make tls  (scripts/generate-tls.sh)
+# ---------------------------------------------------------------------------
+secretMounts:
+  - name: trino-tls
+    secretName: trino-tls
+    path: /etc/trino/tls
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
 
 # ---------------------------------------------------------------------------
 # Catalogs
@@ -98,26 +298,20 @@ catalogs:
   lakehouse: |
     connector.name=iceberg
     iceberg.catalog.type=rest
-    iceberg.rest-catalog.uri=http://polaris.lakehouse.svc.cluster.local:8181/api/catalog
-    iceberg.rest-catalog.warehouse=warehouse
+    iceberg.rest-catalog.uri=${ENV:POLARIS_CATALOG_URL}
+    iceberg.rest-catalog.warehouse=${ENV:CATALOG_NAME}
     iceberg.rest-catalog.security=OAUTH2
     iceberg.rest-catalog.oauth2.credential=${ENV:POLARIS_OAUTH_CREDENTIAL}
     iceberg.rest-catalog.oauth2.scope=PRINCIPAL_ROLE:ALL
     iceberg.target-max-file-size=128MB
     iceberg.unique-table-location=true
     fs.native-s3.enabled=true
-    s3.endpoint=http://seaweedfs-s3.lakehouse.svc.cluster.local:8333
-    s3.region=us-east-1
+    s3.endpoint=${ENV:S3_ENDPOINT}
+    s3.region=${ENV:S3_REGION}
     s3.path-style-access=true
     s3.aws-access-key=lakehouse-access-key
     s3.aws-secret-key=lakehouse-secret-key
 
-service:
-  type: ClusterIP
-  port: 8080
-
-ingress:
-  enabled: false
-
-# Access Trino Web UI:
-#   kubectl port-forward -n lakehouse svc/trino 8080:8080
+# Access Trino Web UI (requires browser for OAuth2 redirect):
+#   kubectl port-forward -n lakehouse svc/trino 8443:8443
+#   Open https://localhost:8443  →  Keycloak login  →  Trino UI

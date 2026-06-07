@@ -28,7 +28,12 @@ BASE_URL="http://localhost:${LOCAL_PORT}"
 ROOT_CLIENT_ID="root"
 ROOT_CLIENT_SECRET="polaris-dev-secret"
 
-CATALOG_NAME="warehouse"
+# Read configurable values from the lakehouse-config ConfigMap
+cm() { kubectl get configmap lakehouse-config -n "$NAMESPACE" -o "jsonpath={.data.$1}"; }
+CATALOG_NAME=$(cm CATALOG_NAME)
+S3_ENDPOINT=$(cm S3_ENDPOINT)
+S3_BUCKET=$(cm S3_BUCKET)
+
 PRINCIPAL_NAME="trino"
 PRINCIPAL_ROLE_NAME="trino-role"
 CATALOG_ROLE_NAME="catalog-admin"
@@ -106,13 +111,13 @@ CATALOG_RESP=$(curl -sf -X POST "${BASE_URL}/api/management/v1/catalogs" \
     \"name\": \"${CATALOG_NAME}\",
     \"type\": \"INTERNAL\",
     \"properties\": {
-      \"default-base-location\": \"s3://warehouse/\",
-      \"s3.endpoint\": \"http://seaweedfs-s3.lakehouse.svc.cluster.local:8333\",
+      \"default-base-location\": \"s3://${S3_BUCKET}/\",
+      \"s3.endpoint\": \"${S3_ENDPOINT}\",
       \"s3.path-style-access\": \"true\"
     },
     \"storageConfigInfo\": {
       \"storageType\": \"S3\",
-      \"allowedLocations\": [\"s3://warehouse/\"],
+      \"allowedLocations\": [\"s3://${S3_BUCKET}/\"],
       \"roleArn\": \"arn:aws:iam::000000000000:role/polaris-dev\",
       \"pathStyleAccess\": true,
       \"stsUnavailable\": true

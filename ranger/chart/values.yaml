@@ -1,0 +1,25 @@
+# Default values for the Ranger Admin chart.
+# Override these in ranger/values.yaml (the project-level override file).
+
+image:
+  repository: ranger-admin
+  tag: "2.6.0"
+  pullPolicy: Never
+
+db:
+  host: mysql
+  rootPassword: password
+  name: ranger_db
+  user: ranger_user
+  password: ranger_password
+
+rangerAdminPassword: "RangerAdmin1!"
+policymgrUrl: "http://ranger.lakehouse.svc.cluster.local:6080"
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 1
+    memory: 2Gi

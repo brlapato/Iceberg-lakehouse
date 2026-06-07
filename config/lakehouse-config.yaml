@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lakehouse-config
+  namespace: lakehouse
+data:
+  # ---------------------------------------------------------------------------
+  # Identity provider — edit KEYCLOAK_URL and KEYCLOAK_REALM then run:
+  #   make keycloak-config
+  # That command recomputes the derived fields below and patches component
+  # values files (openmetadata/values.yaml, trino Ranger XML).
+  # ---------------------------------------------------------------------------
+  KEYCLOAK_URL: "http://keycloak-keycloakx-http.auth.svc.cluster.local/auth"
+  KEYCLOAK_REALM: "lakehouse"
+  KEYCLOAK_TRINO_CLIENT_ID: "trino"
+  KEYCLOAK_OM_CLIENT_ID: "openmetadata"
+
+  # Derived from KEYCLOAK_URL + KEYCLOAK_REALM — updated by 'make keycloak-config'
+  KEYCLOAK_ISSUER_URL: "http://keycloak-keycloakx-http.auth.svc.cluster.local/auth/realms/lakehouse"
+  KEYCLOAK_JWKS_URL: "http://keycloak-keycloakx-http.auth.svc.cluster.local/auth/realms/lakehouse/protocol/openid-connect/certs"
+
+  # ---------------------------------------------------------------------------
+  # Apache Polaris — Iceberg REST catalog
+  # POLARIS_CATALOG_URL must be POLARIS_URL + /api/catalog
+  # ---------------------------------------------------------------------------
+  POLARIS_URL: "http://polaris.lakehouse.svc.cluster.local:8181"
+  POLARIS_CATALOG_URL: "http://polaris.lakehouse.svc.cluster.local:8181/api/catalog"
+
+  # Polaris catalog name — also used as the S3 bucket name
+  CATALOG_NAME: "warehouse"
+
+  # ---------------------------------------------------------------------------
+  # SeaweedFS S3 object storage
+  # ---------------------------------------------------------------------------
+  S3_ENDPOINT: "http://seaweedfs-s3.lakehouse.svc.cluster.local:8333"
+  S3_REGION: "us-east-1"
+  S3_BUCKET: "warehouse"
+
+  # ---------------------------------------------------------------------------
+  # Apache Ranger — policy engine
+  # After changing RANGER_URL or RANGER_SERVICE_NAME, run 'make keycloak-config'
+  # to patch the Ranger XML blocks in trino/values.yaml.
+  # ---------------------------------------------------------------------------
+  RANGER_URL: "http://ranger.lakehouse.svc.cluster.local:6080"
+  RANGER_SERVICE_NAME: "trino_lakehouse"
