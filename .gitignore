@@ -2,3 +2,10 @@
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+
+# Generated TLS assets (created by make tls — stored in K8s secrets, not git)
+*.pem
+*.p12
+*.jks
+
+# Ranger chart is hand-written (in ranger/chart/) — nothing to ignore here

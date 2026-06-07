@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ranger.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ranger.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6080
+      targetPort: 6080
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "ranger.selectorLabels" . | nindent 4 }}

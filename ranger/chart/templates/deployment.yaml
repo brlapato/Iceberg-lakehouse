@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ranger.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ranger.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ranger.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ranger.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: ranger-admin
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 6080
+              name: http
+          env:
+            - name: DB_HOST
+              value: {{ .Values.db.host | quote }}
+            - name: DB_ROOT_PASSWORD
+              value: {{ .Values.db.rootPassword | quote }}
+            - name: DB_NAME
+              value: {{ .Values.db.name | quote }}
+            - name: DB_USER
+              value: {{ .Values.db.user | quote }}
+            - name: DB_PASSWORD
+              value: {{ .Values.db.password | quote }}
+            - name: RANGER_ADMIN_PASSWORD
+              value: {{ .Values.rangerAdminPassword | quote }}
+            - name: POLICYMGR_URL
+              value: {{ .Values.policymgrUrl | quote }}
+          livenessProbe:
+            httpGet:
+              path: /login.jsp
+              port: 6080
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /login.jsp
+              port: 6080
+            initialDelaySeconds: 90
+            periodSeconds: 15
+            failureThreshold: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

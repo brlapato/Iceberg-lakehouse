@@ -1,0 +1,38 @@
+# Apache Ranger Admin — Helm values
+# Chart: ./ranger/chart  (custom, written for this stack)
+# Image: built locally via 'make ranger-image' (ranger-admin:2.6.0)
+#
+# Ranger Admin provides policy management for Trino:
+#   - Define which users/groups can access which catalogs/schemas/tables/columns
+#   - Column masking and row-level filtering
+#   - Audit log to container logs (Solr disabled — reduces dependencies)
+#
+# Access:  kubectl port-forward -n lakehouse svc/ranger 6080:6080
+#          http://localhost:6080  →  admin / <rangerAdminPassword>
+
+image:
+  repository: ranger-admin
+  tag: "2.6.0"
+  pullPolicy: Never   # minikube local image — built by 'make ranger-image'
+
+# MySQL database (shared with OpenMetadata's MySQL StatefulSet)
+db:
+  host: mysql
+  rootPassword: password        # OpenMetadata MySQL root password
+  name: ranger_db
+  user: ranger_user
+  password: ranger_password
+
+# Ranger Admin UI password (must be ≥8 chars, mixed case, at least one digit)
+rangerAdminPassword: "RangerAdmin1!"
+
+# External URL Trino uses to download policies from Ranger Admin
+policymgrUrl: "http://ranger.lakehouse.svc.cluster.local:6080"
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 1
+    memory: 2Gi

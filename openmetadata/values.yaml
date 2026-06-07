@@ -5,6 +5,10 @@
 # Most defaults already point to the correct service names from the
 # openmetadata-dependencies chart (mysql, opensearch, openmetadata-dependencies-api-server).
 # This file only overrides what differs from defaults.
+#
+# OIDC SSO: delegates user authentication to Keycloak.
+#   Keycloak URL/realm set by 'make keycloak-config' (reads config/lakehouse-config.yaml).
+#   Client secret stored in keycloak-openmetadata K8s secret (created by keycloak-secrets.sh).
 
 replicaCount: 1
 
@@ -12,6 +16,39 @@ openmetadata:
   config:
     logLevel: INFO
     clusterName: openmetadata
+
+    # ---------------------------------------------------------------------------
+    # Authentication — Keycloak OIDC SSO
+    # Run 'make keycloak-config' after editing config/lakehouse-config.yaml to propagate
+    # the issuer URL and JWKS URL into this file.
+    # ---------------------------------------------------------------------------
+    authentication:
+      provider: custom-oidc
+      # JWKS endpoint — updated by 'make keycloak-config'
+      publicKeys:
+        - http://keycloak-keycloakx-http.auth.svc.cluster.local/auth/realms/lakehouse/protocol/openid-connect/certs
+      # Issuer / authority — updated by 'make keycloak-config'
+      authority: http://keycloak-keycloakx-http.auth.svc.cluster.local/auth/realms/lakehouse
+      clientId: openmetadata
+      # Redirect URI must match the Keycloak client's allowed redirect URIs
+      callbackUrl: http://localhost:8585/callback
+      clientType: confidential
+      oidcConfiguration:
+        # Client secret stored in K8s secret (created by scripts/keycloak-secrets.sh)
+        clientSecret:
+          secretRef: keycloak-openmetadata
+          secretKey: client-secret
+
+    # ---------------------------------------------------------------------------
+    # Authorization — default JWT-based authorizer
+    # ---------------------------------------------------------------------------
+    authorizer:
+      className: org.openmetadata.service.security.DefaultAuthorizer
+      containerRequestFilter: org.openmetadata.service.security.JwtFilter
+      # Users with admin privileges (must match 'preferred_username' in Keycloak JWT)
+      initialAdmins:
+        - admin
+      principalDomain: open-metadata.org
 
     # OpenSearch (the chart defaults already set this correctly)
     elasticsearch:
@@ -73,4 +110,4 @@ resources:
 
 # Access OpenMetadata UI:
 #   kubectl port-forward -n lakehouse svc/openmetadata 8585:8585
-# Default credentials: admin / admin
+#   Open http://localhost:8585  →  redirects to Keycloak login

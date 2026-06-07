@@ -1,0 +1,6 @@
+apiVersion: v2
+name: ranger
+description: Apache Ranger Admin — policy management for the lakehouse stack
+type: application
+version: 0.1.0
+appVersion: "2.6.0"

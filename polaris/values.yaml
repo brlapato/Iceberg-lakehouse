@@ -77,7 +77,10 @@ extraEnv:
   # directly instead of calling STS). Trino ignores vended credentials
   # (vended-credentials-enabled=false) and uses its own static keys.
   - name: AWS_REGION
-    value: "us-east-1"
+    valueFrom:
+      configMapKeyRef:
+        name: lakehouse-config
+        key: S3_REGION
   - name: AWS_ACCESS_KEY_ID
     value: "lakehouse-access-key"
   - name: AWS_SECRET_ACCESS_KEY
@@ -86,7 +89,10 @@ extraEnv:
   # AWS SDK for Java v2 uses virtual-hosted style (bucket.endpoint/key) when
   # this is set; the hostAliases patch and SeaweedFS domainName make this work.
   - name: AWS_ENDPOINT_URL_S3
-    value: "http://seaweedfs-s3.lakehouse.svc.cluster.local:8333"
+    valueFrom:
+      configMapKeyRef:
+        name: lakehouse-config
+        key: S3_ENDPOINT
 
 service:
   type: ClusterIP
