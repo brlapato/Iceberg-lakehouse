@@ -75,7 +75,7 @@ airflow:
   images:
     airflow:
       repository: docker.getcollate.io/openmetadata/ingestion
-      tag: 1.12.8
+      tag: 1.13.0
       pullPolicy: "IfNotPresent"
   executor: "KubernetesExecutor"
   env:
@@ -90,7 +90,7 @@ airflow:
     - name: AIRFLOW__OPENMETADATA_SECRETS_MANAGER__AWS_ACCESS_KEY
       value: ""
     - name: _PIP_ADDITIONAL_REQUIREMENTS
-      value: "apache-airflow-providers-fab==2.4.4"
+      value: "apache-airflow-providers-fab==3.6.5"
   webserver:
     defaultUser:
       enabled: true

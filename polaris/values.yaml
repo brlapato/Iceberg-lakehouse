@@ -2,14 +2,10 @@
 # Chart: polaris/polaris  v1.5.0
 # Repo:  https://downloads.apache.org/polaris/helm-chart
 #
-# Persistence: in-memory (H2 and EclipseLink were removed in Polaris 1.5.0).
-#   Catalog state (warehouse catalog, trino principal, roles) is lost on pod
-#   restart.  Re-run 'make polaris' to re-bootstrap, then 'make trino' to
-#   restart Trino with refreshed credentials.
-#
-#   To add durable persistence, deploy bitnami/postgresql and switch:
-#     persistence.type: relational-jdbc
-#     persistence.relationalJdbc.secret.name: <postgresql-credentials-secret>
+# Persistence: relational-jdbc backed by bitnami/postgresql (release: polaris-postgresql).
+#   Catalog state (warehouse catalog, trino principal, roles) survives pod restarts.
+#   On first deploy run `make polaris` to deploy PostgreSQL, Polaris, and bootstrap
+#   catalogs via init-polaris.sh.  Subsequent pod restarts need no action.
 #
 # Auth: internal symmetric-key token broker (single-node dev; not for production).
 #
@@ -31,10 +27,17 @@ image:
   pullPolicy: IfNotPresent
 
 # ---------------------------------------------------------------------------
-# Persistence — in-memory (volatile; catalog is rebuilt by init-polaris.sh)
+# Persistence — PostgreSQL via relational-jdbc
+# Credentials come from the polaris-jdbc-credentials secret (make credentials).
 # ---------------------------------------------------------------------------
 persistence:
-  type: in-memory
+  type: relational-jdbc
+  relationalJdbc:
+    secret:
+      name: polaris-jdbc-credentials
+      username: username
+      password: password
+      jdbcUrl: jdbcUrl
 
 # ---------------------------------------------------------------------------
 # Authentication — internal token service, symmetric-key broker (dev only)
@@ -70,8 +73,13 @@ features:
 # init-polaris.sh uses root/polaris-dev-secret to obtain the admin token.
 # ---------------------------------------------------------------------------
 extraEnv:
+  # Bootstrap credentials come from the polaris-bootstrap-credentials secret
+  # created by `make credentials`. Format: REALM,CLIENT_ID,CLIENT_SECRET.
   - name: POLARIS_BOOTSTRAP_CREDENTIALS
-    value: "POLARIS,root,polaris-dev-secret"
+    valueFrom:
+      secretKeyRef:
+        name: polaris-bootstrap-credentials
+        key: credentials
   # SeaweedFS S3 credentials — Polaris needs these to satisfy the AWS SDK
   # when SKIP_CREDENTIAL_SUBSCOPING_INDIRECTION is enabled (it returns them
   # directly instead of calling STS). Trino ignores vended credentials
@@ -79,14 +87,23 @@ extraEnv:
   - name: AWS_REGION
     value: "us-east-1"
   - name: AWS_ACCESS_KEY_ID
-    value: "lakehouse-access-key"
+    valueFrom:
+      secretKeyRef:
+        name: s3-credentials
+        key: access-key
   - name: AWS_SECRET_ACCESS_KEY
-    value: "lakehouse-secret-key"
-  # Override S3 endpoint so Polaris writes Iceberg metadata to SeaweedFS.
+    valueFrom:
+      secretKeyRef:
+        name: s3-credentials
+        key: secret-key
+  # S3 endpoint from the lakehouse-config ConfigMap created by `make config`.
   # AWS SDK for Java v2 uses virtual-hosted style (bucket.endpoint/key) when
   # this is set; the hostAliases patch and SeaweedFS domainName make this work.
   - name: AWS_ENDPOINT_URL_S3
-    value: "http://seaweedfs-s3.lakehouse.svc.cluster.local:8333"
+    valueFrom:
+      configMapKeyRef:
+        name: lakehouse-config
+        key: s3-endpoint
 
 service:
   type: ClusterIP

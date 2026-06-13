@@ -1,0 +1,21 @@
+# PostgreSQL for Apache Polaris — Iceberg REST Catalog persistence
+# Chart: bitnami/postgresql
+# Release: polaris-postgresql  (deployed by `make postgresql-polaris`)
+#
+# The password is passed at deploy time via --set auth.password=$(POLARIS_DB_PASSWORD)
+# so it stays consistent with the polaris-jdbc-credentials K8s secret.
+
+auth:
+  database: polaris
+  username: polaris
+
+primary:
+  persistence:
+    size: 2Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
