@@ -2,14 +2,10 @@
 # Chart: polaris/polaris  v1.5.0
 # Repo:  https://downloads.apache.org/polaris/helm-chart
 #
-# Persistence: in-memory (H2 and EclipseLink were removed in Polaris 1.5.0).
-#   Catalog state (warehouse catalog, trino principal, roles) is lost on pod
-#   restart.  Re-run 'make polaris' to re-bootstrap, then 'make trino' to
-#   restart Trino with refreshed credentials.
-#
-#   To add durable persistence, deploy bitnami/postgresql and switch:
-#     persistence.type: relational-jdbc
-#     persistence.relationalJdbc.secret.name: <postgresql-credentials-secret>
+# Persistence: relational-jdbc backed by bitnami/postgresql (release: polaris-postgresql).
+#   Catalog state (warehouse catalog, trino principal, roles) survives pod restarts.
+#   On first deploy run `make polaris` to deploy PostgreSQL, Polaris, and bootstrap
+#   catalogs via init-polaris.sh.  Subsequent pod restarts need no action.
 #
 # Auth: internal symmetric-key token broker (single-node dev; not for production).
 #
@@ -31,10 +27,17 @@ image:
   pullPolicy: IfNotPresent
 
 # ---------------------------------------------------------------------------
-# Persistence — in-memory (volatile; catalog is rebuilt by init-polaris.sh)
+# Persistence — PostgreSQL via relational-jdbc
+# Credentials come from the polaris-jdbc-credentials secret (make credentials).
 # ---------------------------------------------------------------------------
 persistence:
-  type: in-memory
+  type: relational-jdbc
+  relationalJdbc:
+    secret:
+      name: polaris-jdbc-credentials
+      username: username
+      password: password
+      jdbcUrl: jdbcUrl
 
 # ---------------------------------------------------------------------------
 # Authentication — internal token service, symmetric-key broker (dev only)

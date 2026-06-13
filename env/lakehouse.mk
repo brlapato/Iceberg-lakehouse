@@ -13,9 +13,17 @@ SEAWEEDFS_RELEASE   := seaweedfs
 S3_ACCESS_KEY       := lakehouse-access-key
 S3_SECRET_KEY       := lakehouse-secret-key
 S3_REGION           := us-east-1
-S3_BUCKET           := warehouse
 
 # Polaris bootstrap credentials (root principal used by init-polaris.sh)
 POLARIS_REALM       := POLARIS
 POLARIS_ROOT_ID     := root
 POLARIS_ROOT_SECRET := polaris-dev-secret
+
+# ---------------------------------------------------------------------------
+# Catalogs — each entry becomes a Polaris catalog + Trino catalog.
+# CATALOGS     : space-separated list of catalog names
+# CATALOG_<n>_BUCKET : S3 bucket backing that catalog
+# ---------------------------------------------------------------------------
+CATALOGS                  := warehouse prod
+CATALOG_warehouse_BUCKET  := warehouse
+CATALOG_prod_BUCKET       := warehouse
