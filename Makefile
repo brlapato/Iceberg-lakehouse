@@ -6,6 +6,11 @@ include env/$(ENV).mk
 # Polaris PostgreSQL password — override per environment in env/<ENV>.mk if needed.
 POLARIS_DB_PASSWORD ?= polaris-dev
 
+# Keycloak JWT auth for Trino — set both in env/<ENV>.mk to enable.
+# When KEYCLOAK_URL is empty the trino target deploys without authentication.
+KEYCLOAK_URL   ?=
+KEYCLOAK_REALM ?=
+
 HELM    := helm
 KUBECTL := kubectl
 
@@ -148,10 +153,17 @@ polaris: namespaces credentials config postgresql-polaris
 trino: namespaces credentials config
 	CATALOGS='$(CATALOGS)' \
 		bash scripts/gen-trino-catalogs.sh > /tmp/trino-catalogs-$(ENV).yaml
+	# If KEYCLOAK_URL is set, build the JWT auth overlay (chart manages the ConfigMap).
+	@if [ -n "$(KEYCLOAK_URL)" ]; then \
+		echo "[trino] Keycloak JWT auth enabled ($(KEYCLOAK_URL)/realms/$(KEYCLOAK_REALM))"; \
+		KEYCLOAK_URL='$(KEYCLOAK_URL)' KEYCLOAK_REALM='$(KEYCLOAK_REALM)' NAMESPACE='$(NAMESPACE)' \
+			bash scripts/gen-trino-auth.sh > /tmp/trino-auth-$(ENV).yaml; \
+	fi
 	$(HELM) upgrade --install trino trino/trino \
 		--namespace $(NAMESPACE) \
 		--values trino/values.yaml \
 		--values /tmp/trino-catalogs-$(ENV).yaml \
+		$(if $(KEYCLOAK_URL),--values /tmp/trino-auth-$(ENV).yaml) \
 		--wait --timeout 5m
 
 # ---------------------------------------------------------------------------
@@ -258,6 +270,8 @@ teardown:
 	$(HELM) uninstall openmetadata               --namespace $(NAMESPACE) --ignore-not-found
 	$(HELM) uninstall openmetadata-dependencies  --namespace $(NAMESPACE) --ignore-not-found
 	$(HELM) uninstall trino                      --namespace $(NAMESPACE) --ignore-not-found
+	$(KUBECTL) delete configmap trino-access-control --namespace $(NAMESPACE) --ignore-not-found || true
+	$(KUBECTL) delete secret trino-internal-shared-secret --namespace $(NAMESPACE) --ignore-not-found
 	$(HELM) uninstall polaris                    --namespace $(NAMESPACE) --ignore-not-found
 	$(KUBECTL) delete job polaris-db-init        --namespace $(NAMESPACE) --ignore-not-found
 	$(HELM) uninstall polaris-postgresql         --namespace $(NAMESPACE) --ignore-not-found

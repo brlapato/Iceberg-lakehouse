@@ -1,0 +1,24 @@
+{
+  "catalogs": [
+    {
+      "user": ".*",
+      "catalog": "system",
+      "allow": "read-only"
+    },
+    {
+      "user": ".*",
+      "catalog": "jmx",
+      "allow": "read-only"
+    },
+    {
+      "user": ".*",
+      "catalog": "tpch",
+      "allow": "read-only"
+    },
+    {
+      "user": ".*",
+      "catalog": ".*",
+      "allow": "all"
+    }
+  ]
+}

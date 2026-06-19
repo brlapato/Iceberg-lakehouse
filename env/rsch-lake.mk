@@ -14,3 +14,8 @@ POLARIS_ROOT_SECRET := polaris-dev-secret
 CATALOGS                  := rsch prod
 CATALOG_rsch_BUCKET       := shared-lake-bucket
 CATALOG_prod_BUCKET       := shared-lake-bucket
+
+# Keycloak — JWT authentication for Trino (in-cluster OIDC)
+# Keycloak is deployed in the 'auth' namespace via the keycloakx chart.
+KEYCLOAK_URL   := http://keycloak-keycloakx-http.auth.svc.cluster.local/auth
+KEYCLOAK_REALM := rsch-lake
