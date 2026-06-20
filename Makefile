@@ -14,6 +14,10 @@ KEYCLOAK_REALM ?=
 HELM    := helm
 KUBECTL := kubectl
 
+# Superset runs in its own namespace so its PostgreSQL and Redis sub-charts are
+# isolated from the lakehouse services and can be torn down independently.
+SUPERSET_NAMESPACE ?= superset
+
 # SeaweedFS release name — must be unique across environments because the chart
 # creates cluster-scoped ClusterRole/ClusterRoleBinding named <release>-rw-cr(b).
 # Defaults to seaweedfs-<NAMESPACE>; env/*.mk can override (lakehouse pins to
@@ -34,12 +38,12 @@ POLARIS_BOOTSTRAP   := $(POLARIS_REALM),$(POLARIS_ROOT_ID),$(POLARIS_ROOT_SECRET
 CATALOG_ENV_VARS := $(foreach c,$(CATALOGS),CATALOG_$(c)_BUCKET='$(CATALOG_$(c)_BUCKET)')
 
 .PHONY: all repos namespaces credentials config seaweedfs postgresql-polaris polaris trino \
-        openmetadata-deps openmetadata init-storage register-tables \
+        openmetadata-deps openmetadata superset init-storage register-tables \
         add-catalog status teardown \
-        pf-trino pf-polaris pf-openmetadata pf-seaweedfs-s3
+        pf-trino pf-polaris pf-openmetadata pf-seaweedfs-s3 pf-superset
 
 # Deploy everything in dependency order
-all: repos namespaces credentials config seaweedfs postgresql-polaris polaris trino openmetadata-deps openmetadata
+all: repos namespaces credentials config seaweedfs postgresql-polaris polaris trino openmetadata-deps openmetadata superset
 
 # ---------------------------------------------------------------------------
 # Helm repository setup
@@ -50,6 +54,7 @@ repos:
 	$(HELM) repo add trino          https://trinodb.github.io/charts
 	$(HELM) repo add open-metadata  https://helm.open-metadata.org
 	$(HELM) repo add bitnami        https://charts.bitnami.com/bitnami
+	$(HELM) repo add superset       https://apache.github.io/superset
 	$(HELM) repo update
 
 # ---------------------------------------------------------------------------
@@ -232,6 +237,40 @@ openmetadata: namespaces
 		--wait --timeout 10m
 
 # ---------------------------------------------------------------------------
+# Apache Superset — interactive data exploration UI
+# Deploys into its own namespace (SUPERSET_NAMESPACE, default: superset) so its
+# PostgreSQL and Redis sub-charts are isolated from the lakehouse services.
+# The superset-secrets K8s secret is created here (not in `credentials`) because
+# it belongs to SUPERSET_NAMESPACE, not the main lakehouse NAMESPACE.
+# ---------------------------------------------------------------------------
+superset:
+	$(KUBECTL) create namespace $(SUPERSET_NAMESPACE) --dry-run=client -o yaml | $(KUBECTL) apply -f -
+	$(KUBECTL) create secret generic superset-secrets \
+		--namespace $(SUPERSET_NAMESPACE) \
+		--from-literal=SECRET_KEY=$(SUPERSET_SECRET_KEY) \
+		--from-literal=DB_HOST=superset-postgresql \
+		--from-literal=DB_PORT=5432 \
+		--from-literal=DB_USER=superset \
+		--from-literal=DB_NAME=superset \
+		--from-literal=DB_PASS=$(SUPERSET_DB_PASSWORD) \
+		--from-literal=postgresql-password=$(SUPERSET_DB_PASSWORD) \
+		--from-literal=REDIS_HOST=superset-redis-headless \
+		--from-literal=REDIS_PORT=6379 \
+		--from-literal=REDIS_PROTO=redis \
+		--from-literal=REDIS_CELERY_DB=0 \
+		--from-literal=SUPERSET_ADMIN_PASSWORD=$(SUPERSET_ADMIN_PASSWORD) \
+		--from-literal=TRINO_CLIENT_ID=PositionService \
+		--from-literal=TRINO_CLIENT_SECRET=$(KEYCLOAK_POSITION_SECRET) \
+		--from-literal=KEYCLOAK_URL=$(KEYCLOAK_URL) \
+		--from-literal=KEYCLOAK_REALM=$(KEYCLOAK_REALM) \
+		--dry-run=client -o yaml | $(KUBECTL) apply -f -
+	$(HELM) upgrade --install superset superset/superset \
+		--namespace $(SUPERSET_NAMESPACE) \
+		--version 0.16.2 \
+		--values superset/values.yaml \
+		--wait --timeout 10m
+
+# ---------------------------------------------------------------------------
 # Post-deploy helpers
 # ---------------------------------------------------------------------------
 init-storage:
@@ -263,10 +302,15 @@ pf-openmetadata:
 pf-seaweedfs-s3:
 	$(KUBECTL) port-forward --namespace $(NAMESPACE) svc/$(S3_SVC_NAME) 8333:8333
 
+pf-superset:
+	$(KUBECTL) port-forward --namespace $(SUPERSET_NAMESPACE) svc/superset 8088:8088
+
 # ---------------------------------------------------------------------------
 # Teardown — removes all Helm releases, secrets, ConfigMap, and namespace
 # ---------------------------------------------------------------------------
 teardown:
+	$(HELM) uninstall superset                   --namespace $(SUPERSET_NAMESPACE) --ignore-not-found
+	$(KUBECTL) delete namespace $(SUPERSET_NAMESPACE) --ignore-not-found
 	$(HELM) uninstall openmetadata               --namespace $(NAMESPACE) --ignore-not-found
 	$(HELM) uninstall openmetadata-dependencies  --namespace $(NAMESPACE) --ignore-not-found
 	$(HELM) uninstall trino                      --namespace $(NAMESPACE) --ignore-not-found
