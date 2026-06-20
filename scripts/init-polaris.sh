@@ -99,7 +99,7 @@ auth_header() { echo "Authorization: Bearer ${ROOT_TOKEN}"; }
 # 4. Create the "trino" service principal (rotate credentials if it exists)
 # ---------------------------------------------------------------------------
 log "Creating principal '${PRINCIPAL_NAME}'..."
-PRINCIPAL_RESP=$(curl -sf -X POST "${BASE_URL}/api/management/v1/principals" \
+PRINCIPAL_RESP=$(curl -s -X POST "${BASE_URL}/api/management/v1/principals" \
     -H "$(auth_header)" -H "Content-Type: application/json" \
     -d "{
   \"principal\": {\"name\": \"${PRINCIPAL_NAME}\", \"type\": \"SERVICE\"},

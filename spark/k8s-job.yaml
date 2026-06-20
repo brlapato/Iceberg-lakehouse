@@ -1,0 +1,68 @@
+# Kubernetes Job — Dollar Risk Spark pipeline
+#
+# Build and load the image into minikube before applying:
+#   eval $(minikube docker-env)
+#   docker build -t dollar-risk-spark:latest spark/
+#
+# Deploy:
+#   kubectl apply -f spark/k8s-job.yaml -n rsch-lake
+#
+# Re-run (delete old job first):
+#   kubectl delete job dollar-risk -n rsch-lake --ignore-not-found
+#   kubectl apply  -f spark/k8s-job.yaml -n rsch-lake
+#
+# Logs:
+#   kubectl logs -n rsch-lake -l job-name=dollar-risk --tail=100
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dollar-risk
+  namespace: rsch-lake
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        app: dollar-risk
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: dollar-risk
+          image: dollar-risk-spark:latest
+          imagePullPolicy: Never   # use image built inside minikube's Docker daemon
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2
+              memory: 3Gi
+          env:
+            - name: AWS_REGION
+              value: "us-east-1"
+            - name: POLARIS_OAUTH_CREDENTIAL
+              valueFrom:
+                secretKeyRef:
+                  name: polaris-trino-credentials
+                  key: oauth-credential
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: access-key
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: secret-key
+            - name: S3_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: lakehouse-config
+                  key: s3-endpoint
+            - name: POLARIS_CATALOG_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: lakehouse-config
+                  key: polaris-catalog-uri
