@@ -1,0 +1,149 @@
+# Apache Superset — interactive data exploration UI
+# Chart: superset/superset  (https://apache.github.io/superset)
+# App:   Apache Superset 4.1.0
+#
+# Persistence:
+#   PostgreSQL (bitnami sub-chart) — Superset metadata: saved charts, dashboards,
+#     datasets, users. Survives pod restarts via 8Gi PVC.
+#   Redis (bitnami sub-chart) — async query cache and Celery broker. 2Gi PVC.
+#
+# Auth:
+#   Superset UI — basic auth, admin user created by bootstrapScript on first boot.
+#   Trino connectivity — DB_CONNECTION_MUTATOR in extraConfigs fetches a fresh
+#     Keycloak client_credentials token (PositionService) and injects it as
+#     JWTAuthentication into every Trino SQLAlchemy connection. Token is cached
+#     in-process and refreshed 30 s before expiry.
+#
+# Credentials:
+#   All secrets loaded from the 'superset-secrets' K8s secret created by
+#   `make credentials`. The same secret is also used by the PostgreSQL sub-chart
+#   (secretKeys.userPasswordKey = postgresql-password).
+
+# Load all connection details and credentials from the K8s secret.
+# DB_HOST/DB_PORT/REDIS_HOST/REDIS_PORT are in the secret (not extraEnv) because
+# the chart's wait-for-postgres init containers only receive envFrom: secretRef.
+envFromSecret: "superset-secrets"
+
+# Inject SECRET_KEY into superset_config.py explicitly.
+# The chart-generated superset_config.py does not set SECRET_KEY, so Superset 6.x
+# falls back to its hardcoded default and refuses to start. configOverrides appends
+# Python code to the generated config, picking up SECRET_KEY from the env.
+configOverrides:
+  secret_key: |
+    SECRET_KEY = os.environ.get("SECRET_KEY")
+  trino_auth: |
+    import os, time, requests as _requests
+
+    _trino_token_cache = {"token": None, "exp": 0}
+
+    def _trino_token():
+        if time.time() < _trino_token_cache["exp"] - 30:
+            return _trino_token_cache["token"]
+        resp = _requests.post(
+            os.environ["KEYCLOAK_URL"]
+            + "/realms/" + os.environ["KEYCLOAK_REALM"]
+            + "/protocol/openid-connect/token",
+            data={
+                "grant_type":    "client_credentials",
+                "client_id":     os.environ["TRINO_CLIENT_ID"],
+                "client_secret": os.environ["TRINO_CLIENT_SECRET"],
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        d = resp.json()
+        _trino_token_cache.update(token=d["access_token"], exp=time.time() + d["expires_in"])
+        return _trino_token_cache["token"]
+
+    try:
+        from trino.auth import JWTAuthentication
+
+        def DB_CONNECTION_MUTATOR(uri, params, username, security_manager, source):
+            if "trino" in str(uri):
+                params.setdefault("connect_args", {})
+                params["connect_args"]["auth"] = JWTAuthentication(_trino_token())
+                params["connect_args"]["http_scheme"] = "http"
+            return uri, params
+    except ImportError:
+        pass
+
+# ---------------------------------------------------------------------------
+# First-boot initialisation
+# Idempotent: admin create errors are suppressed (user may already exist on
+# subsequent helm upgrades).
+# ---------------------------------------------------------------------------
+bootstrapScript: |
+  #!/bin/bash
+  # Superset 6.x ships without a PostgreSQL driver. Install psycopg2-binary so
+  # SQLAlchemy can connect to the bundled PostgreSQL sub-chart. This runs before
+  # gunicorn starts in every pod (acceptable overhead for a dev environment).
+  pip install psycopg2-binary sqlalchemy-trino --target=/app/.venv/lib/python3.10/site-packages/ --quiet 2>&1 | tail -2
+  superset fab create-admin \
+    --username admin \
+    --firstname Admin \
+    --lastname User \
+    --email admin@superset.local \
+    --password "${SUPERSET_ADMIN_PASSWORD}" 2>/dev/null || true
+  superset db upgrade
+  superset init
+
+# ---------------------------------------------------------------------------
+# Trino JWT auth — appended to superset_config.py via configOverrides so it is
+# executed when Superset imports the config (extraConfigs files are mounted but
+# not auto-imported, so they would be silently ignored).
+# DB_CONNECTION_MUTATOR is called before every SQLAlchemy connection is opened.
+# It fetches a fresh Keycloak client_credentials token for the PositionService
+# client and injects JWTAuthentication so token expiry is transparent.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Superset metadata DB + cache connections
+# DB_HOST, DB_PORT, REDIS_HOST, REDIS_PORT etc. are stored in superset-secrets
+# (not extraEnv) because the chart's wait-for-postgres init containers only
+# receive envFrom: secretRef — extraEnv and supersetNode.connections are not
+# mounted into init containers in this chart version.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# PostgreSQL — Superset metadata persistence
+# Uses the same secret as the app (postgresql-password key) so there is one
+# source of truth for the database password.
+# ---------------------------------------------------------------------------
+postgresql:
+  enabled: true
+  auth:
+    username: superset
+    database: superset
+    existingSecret: "superset-secrets"
+    secretKeys:
+      adminPasswordKey: "postgresql-password"
+      userPasswordKey: "postgresql-password"
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# ---------------------------------------------------------------------------
+# Redis — async query cache and Celery result backend
+# ---------------------------------------------------------------------------
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: true
+      size: 2Gi
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 2
+    memory: 2Gi
+
+service:
+  type: ClusterIP
+  port: 8088

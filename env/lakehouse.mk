@@ -27,3 +27,11 @@ POLARIS_ROOT_SECRET := polaris-dev-secret
 CATALOGS                  := warehouse prod
 CATALOG_warehouse_BUCKET  := warehouse
 CATALOG_prod_BUCKET       := warehouse
+
+# PositionService Keycloak client — used by notebooks and Superset→Trino auth.
+KEYCLOAK_POSITION_SECRET := gNUiRyYesntJc0o1oOG15FkDhHHMk6X9
+
+# Superset
+SUPERSET_SECRET_KEY     := e962a322a84cc469d7043aedc0bbc7e94aa24ffb218ac3ecc91262324868ccbd
+SUPERSET_ADMIN_PASSWORD := admin
+SUPERSET_DB_PASSWORD    := superset-dev
